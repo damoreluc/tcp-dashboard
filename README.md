@@ -4,6 +4,7 @@ _Rev. 0.1 - august 31, 2025_
 
 Summary
 - Real-time browser dashboard that draws time-series data (Chart.js) delivered over WebSockets.
+- The TCP server listens on port 30000. Each packet is a fixed-length 20-byte struct containing 5 float32 little-endian values (5 × 4 bytes). The server decodes those 5 floats into an array and broadcasts JSON { timestamp, values } to WebSocket clients.
 - Client: `public/index.html`. WebSocket helper: `ws/wsServer.js`.
 - Expected shape of messages sent to clients:
   `{ "timestamp": "ISO-8601-string", "values": [v1, v2, v3, ...] }`
@@ -13,14 +14,10 @@ Prerequisites
 - npm
 
 Quick start
-1. From project root:
-   - npm init -y
-   - Add `"type": "module"` to package.json (ESM imports are used).
-   - npm install express ws
-2. Create an HTTP server entrypoint (see example below).
-3. Start server:
-   - node src/server.js
-4. Open http://localhost:8080 in your browser. The client will connect to `ws://<host>:8080/` by default.
+1. Start server:
+   - node server.js
+2. Open http://localhost:8080 in your browser. The client will connect to `ws://<host>:8080/` by default.
+3. On your client device, open a TCP connection to the server on TCP port 30000 and send your data packets.
 
 Files in this repository
 - public/index.html
