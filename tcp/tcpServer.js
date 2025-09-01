@@ -7,7 +7,7 @@ const PORT_TCP = 30000;
 const STRUCT_SIZE = 20; // Size of the expected data structure in bytes
 
 function startTcpServer() {
-    net.createServer((socket) => {
+    const server = net.createServer((socket) => {
         console.log('New TCP connection established.');
 
         socket.on('data', (data) => {
@@ -24,6 +24,8 @@ function startTcpServer() {
     }).listen(PORT_TCP, () => {
         console.log(`TCP server listening on port ${PORT_TCP}`);
     });
+
+    return server;
 }
 
 export default startTcpServer;

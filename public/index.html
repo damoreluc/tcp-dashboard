@@ -3,17 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TCP Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>TCP Dashboard (WebGL)</title>
+    <!-- Plotly with WebGL traces (scattergl) -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
             padding: 20px;
             background-color: #f4f4f4;
         }
-        canvas {
-            max-width: 100%;
-            height: auto;
+        #charts {
+            width: 100%;
+            height: 500px;
             margin-bottom: 30px;
             border: 2px solid #333;
         }
@@ -21,83 +22,87 @@
 </head>
 <body>  
     <h1>TCP Dashboard</h1>
-    <h2>Real-time Data Visualization</h2>
-    <canvas id="charts"></canvas>
+    <h2>Real-time Data Visualization (WebGL)</h2>
+
+    <!-- Plotly needs a div, not canvas -->
+    <div id="charts"></div>
 
     <script>
-        const labels = [];
-        const datasets = Array.from({ length: 5 }, (_, i) => ({
-            label: `Channel ${i + 1}`,
-            data: [],
-            borderColor: `hsl(${(i * 45) % 360}, 70%, 50%)`,
-            fill: false,
-            tension: 0.3
+        const CHANNELS = 5;
+        const MAX_POINTS = 100;        // keep this many points per trace
+        const UPDATE_INTERVAL_MS = 33;  // ~30 FPS
+        const pending = [];
+
+        // fixed vertical axis range (calibration)
+       const Y_MIN = -100;
+       const Y_MAX = 100;
+
+        // create empty traces (scattergl = WebGL)
+        const traces = Array.from({ length: CHANNELS }, (_, i) => ({
+            x: [],
+            y: [],
+            mode: 'lines',
+            type: 'scattergl',
+            name: `Channel ${i + 1}`,
+            line: { width: 2, color: `hsl(${(i * 45) % 360}, 70%, 50%)` }
         }));
 
-        //const ctx = document.createElement('canvas').getContext('2d');
-        //document.getElementById('charts').appendChild(ctx.canvas);
-        const canvas = document.getElementById('charts');
-        const ctx = canvas.getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                animations: false,
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Value'
-                        }
-                    }
-                }
-            }
-        });
+        const layout = {
+            margin: { t: 30 },
+            xaxis: { title: 'Time', type: 'date' },
+            yaxis: { title: 'Value' },
+        // FIXED vertical axis: explicit range + autorange:false
+        yaxis: {
+            title: 'Value',
+            range: [Y_MIN, Y_MAX],
+            autorange: false
+        },
+            legend: { orientation: 'h' }
+        };
+
+        const config = { responsive: true, displayModeBar: false };
+
+        Plotly.newPlot('charts', traces, layout, config);
 
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = `${location.hostname}:8080`;
-        const path = '/'; // change to '/ws' if your server upgrades on a specific path
+        const path = '/';
         const ws = new WebSocket(`${protocol}//${host}${path}`);
 
-        console.log('Connecting to ', ws.url);
+        ws.onopen = () => console.log('WebSocket open', ws.url);
 
-        //const ws = new WebSocket(`ws://${location.host}`);
-        ws.onmessage = (event) => {
-            console.log('.');
-            const {timestamp, values} = JSON.parse(event.data);
-            
-            //labels.push(timestamp.split('T')[1].split('.')[0]); // only hour
-            
-            // parse timestamp into components
-            const d = new Date(timestamp);
-            const hh = String(d.getHours()).padStart(2, '0');
-            const mm = String(d.getMinutes()).padStart(2, '0');
-            const ss = String(d.getSeconds()).padStart(2, '0');
-            const ms = String(d.getMilliseconds()).padStart(3, '0');
+        ws.onmessage = (ev) => {
+            try { pending.push(JSON.parse(ev.data)); } catch (e) { /* ignore */ }
+        };
 
-            labels.push(`${hh}:${mm}:${ss}.${ms}`);
+        ws.onclose = ws.onerror = () => { pending.length = 0; };
 
-            datasets.forEach((ds, i) => {
-                ds.data.push(values[i]);
-            });
+        // periodic updater: batch messages into per-trace x/y arrays, then extend traces once
+        setInterval(() => {
+            if (pending.length === 0) return;
 
-            if (labels.length > 100) {
-                labels.shift();
-                datasets.forEach(ds => ds.data.shift());
+            const batch = pending.splice(0, pending.length);
+
+            // prepare arrays for Plotly.extendTraces: one inner array per trace
+            const xArrays = Array.from({ length: CHANNELS }, () => []);
+            const yArrays = Array.from({ length: CHANNELS }, () => []);
+
+            for (const msg of batch) {
+                // use epoch ms for date axis (Plotly accepts numbers)
+                const t = Date.parse(msg.timestamp);
+                for (let i = 0; i < CHANNELS; i++) {
+                    xArrays[i].push(t);
+                    yArrays[i].push(msg.values[i]);
+                }
             }
 
-            chart.update();
-        };
+            const traceIndices = Array.from({ length: CHANNELS }, (_, i) => i);
+            Plotly.extendTraces('charts', { x: xArrays, y: yArrays }, traceIndices, MAX_POINTS);
+
+        }, UPDATE_INTERVAL_MS);
+
+        // optional: also clear pending on ws close/error to free memory
+        ws.onclose = ws.onerror = () => pending.length = 0;   
 
     </script>
 </body>
